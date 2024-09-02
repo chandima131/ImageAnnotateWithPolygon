@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap');
+
+* {
+  margin: 0;
+  font-family: "Quicksand";
+  color:#333;
+}
+
+.navbar {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  max-width: 600px;
+  margin: 0 auto;
+  border-bottom: 1px solid #f2f2f2;
+}
+
+.navbar h1 {
+  color: #f1356d;
+}
+
+.navbar a {
+  margin-left:16px;
+  text-decoration: none;
+  padding: 6px;
+}
+
+.navbar a:hover {
+  color: #f1356d;
+}
+.content {
+  max-width:600px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+
+/* src/App.css */
+.App {
+  text-align: center;
+  margin: 20px;
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+input[type="file"] {
+  margin: 20px;
+}
+
+canvas {
+  cursor: crosshair;
+}
+
+
+.image-list-container {
+  width: 150px;               /* Fixed width for the sidebar */
+  height: 100vh;              /* Full viewport height */
+  overflow-y: auto;           /* Enable vertical scrolling */
+  border-right: 1px solid #ccc; /* Border to separate the sidebar */
+  padding: 10px;              /* Padding inside the container */
+  box-sizing: border-box;
+  background-color: #f4f4f4;  /* Optional: background color */
+}
+
+.image-wrapper {
+  margin-bottom: 10px;        /* Space between images */
+  cursor: pointer;            /* Change cursor to pointer (hand) on hover */
+}
+
+.image {
+  width: 100%;                /* Full width of the container */
+  height: auto;               /* Maintain aspect ratio */
+  max-height: 100px;          /* Maximum height to standardize image sizes */
+  object-fit: cover;          /* Fit the image within the given dimensions */
+  border-radius: 5px;         /* Optional: round the corners of the image */
+}
