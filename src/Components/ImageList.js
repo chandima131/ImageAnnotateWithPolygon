@@ -21,6 +21,8 @@ const styles = {
     width: '150px',        // Fixed width for the sidebar
     height: '100vh',       // Full viewport height
     overflowY: 'auto',     // Enable vertical scrolling
+    marginTop: '40px',
+    marginRight: '1px',
     borderRight: '1px solid #ccc', // Border to separate the sidebar
     padding: '10px',       // Padding inside the container
     boxSizing: 'border-box',

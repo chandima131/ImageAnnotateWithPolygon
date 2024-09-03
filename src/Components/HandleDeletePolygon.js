@@ -1,15 +1,15 @@
 import React from 'react';
 import { confirmAlert } from 'react-confirm-alert';
-import 'react-confirm-alert/src/react-confirm-alert.css'; // Import the default styles
+import 'react-confirm-alert/src/react-confirm-alert.css';
 
-const HandleDeletePolygon = ({ setPoints, setIsFinished }) => {
-  const handleDeletePolygon = () => {
+const HandleDeletePolygon = ({ handleDeletePolygon }) => {
+  const handleDelete = () => {
     confirmAlert({
       customUI: ({ onClose }) => {
         return (
           <div className='custom-ui' style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', textAlign: 'center' }}>
             <h1 style={{ color: 'red' }}>Confirm Delete</h1>
-            <p>Are you sure to delete the Polygon? This process cannot be undone.</p>
+            <p>Are you sure you want to delete the selected polygon? This action cannot be undone.</p>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}>
               <button
                 style={{
@@ -22,8 +22,7 @@ const HandleDeletePolygon = ({ setPoints, setIsFinished }) => {
                   cursor: 'pointer',
                 }}
                 onClick={() => {
-                  setPoints([]);
-                  setIsFinished(false);
+                  handleDeletePolygon();
                   onClose();
                 }}
               >
@@ -50,7 +49,7 @@ const HandleDeletePolygon = ({ setPoints, setIsFinished }) => {
     });
   };
 
-  return <button onClick={handleDeletePolygon} style={{ margin: '10px' }}>Delete Polygon</button>;
+  return <button onClick={handleDelete} style={{ margin: '10px' }}>Delete Polygon</button>;
 };
 
 export default HandleDeletePolygon;

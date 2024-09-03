@@ -4,7 +4,6 @@ import useImage from 'use-image';
 import HandleDeletePolygon from './HandleDeletePolygon';
 import ImageList from './ImageList';
 import { saveAs } from 'file-saver';
-import html2canvas from 'html2canvas';
 
 // Import images from the assets folder
 import testImage from '../assets/images/test.jpg';
@@ -29,8 +28,9 @@ const dragBoundFunc = (width, height, radius, pos) => {
 
 const ImageUpload = () => {
   const [imageSrc, setImageSrc] = useState(null);
-  const [points, setPoints] = useState([]);
-  const [isFinished, setIsFinished] = useState(false);
+  const [polygons, setPolygons] = useState([[], []]); // Array to store up to two polygons
+  const [currentPolygonIndex, setCurrentPolygonIndex] = useState(0); // Index of the current polygon being drawn
+  const [isFinished, setIsFinished] = useState([false, false]); // Track the completion status of each polygon
   const stageRef = useRef(null);
   const imageRef = useRef(null);
   const [loadedImage] = useImage(imageSrc);
@@ -51,26 +51,16 @@ const ImageUpload = () => {
     { src: testImage8 },
   ];
 
-  // const handleFileChange = (event) => {
-  //   const file = event.target.files[0];
-  //   if (file) {
-  //     const reader = new FileReader();
-  //     reader.onloadend = () => {
-  //       setImageSrc(reader.result);
-  //       setPoints([]);
-  //       setIsFinished(false);
-  //     };
-  //     reader.readAsDataURL(file);
-  //   }
-  // };
-
   const handleSelectImage = (image) => {
     setImageSrc(image.src);
-    setPoints([]);
-    setIsFinished(false);
+    setPolygons([[], []]);
+    setCurrentPolygonIndex(0);
+    setIsFinished([false, false]);
   };
 
   const handleMouseClick = (e) => {
+    if (currentPolygonIndex >= 2) return; // Restrict to a maximum of two polygons
+
     const stage = stageRef.current;
     const pointerPos = stage.getPointerPosition();
     const image = imageRef.current;
@@ -83,38 +73,52 @@ const ImageUpload = () => {
       const x = (pointerPos.x - imageX) / imageScaleX;
       const y = (pointerPos.y - imageY) / imageScaleY;
 
-      if (points.length > 0 && !isFinished) {
-        const startPoint = points[0];
+      const newPolygon = [...polygons[currentPolygonIndex]];
+
+      if (newPolygon.length > 0 && !isFinished[currentPolygonIndex]) {
+        const startPoint = newPolygon[0];
         const distance = Math.sqrt((x - startPoint.x) ** 2 + (y - startPoint.y) ** 2);
         if (distance < vertexRadius) {
-          setIsFinished(true); // Close the polygon if clicked near the starting point
+          // Close the polygon if clicked near the starting point
+          const newIsFinished = [...isFinished];
+          newIsFinished[currentPolygonIndex] = true;
+          setIsFinished(newIsFinished);
+
+          const newPolygons = [...polygons];
+          newPolygons[currentPolygonIndex] = newPolygon;
+          setPolygons(newPolygons);
+
+          // Move to the next polygon
+          if (currentPolygonIndex === 0) {
+            setCurrentPolygonIndex(1);
+          }
           return;
         }
       }
 
-      if (isFinished) return;
+      if (isFinished[currentPolygonIndex]) return;
 
-      setPoints((prevPoints) => [...prevPoints, { x, y }]);
-      if (points.length === 0) {
-        setIsFinished(false);
-      }
+      newPolygon.push({ x, y });
+      setPolygons((prevPolygons) => {
+        const newPolygons = [...prevPolygons];
+        newPolygons[currentPolygonIndex] = newPolygon;
+        return newPolygons;
+      });
     }
   };
 
-  const handlePointDragMove = (e) => {
-    const newPoints = points.slice();
-    newPoints[e.target.index] = e.target.position();
-    setPoints(newPoints);
+  const handlePointDragMove = (e, polygonIndex) => {
+    const newPolygons = polygons.slice();
+    newPolygons[polygonIndex][e.target.index] = e.target.position();
+    setPolygons(newPolygons);
   };
 
-  const handleGroupDragStart = () => {
-    const arrX = points.map((p) => p.x);
-    const arrY = points.map((p) => p.y);
+  const handleGroupDragStart = (polygon) => {
+    const arrX = polygon.map((p) => p.x);
+    const arrY = polygon.map((p) => p.y);
     setMinMaxX(minMax(arrX));
     setMinMaxY(minMax(arrY));
   };
-
-  const handleGroupDragEnd = (e) => {};
 
   const groupDragBound = (pos) => {
     let { x, y } = pos;
@@ -130,21 +134,13 @@ const ImageUpload = () => {
     return { x, y };
   };
 
-
   const saveImage = async () => {
-    const stage = stageRef.current;
+    let stage = stageRef.current;
 
     try {
-      // Capture the current stage as a canvas
-      const canvas = await html2canvas(stage.container());
-
-      // Convert canvas to a blob and save it as an image file
-      canvas.toBlob((blob) => {
-        saveAs(blob, 'annotated_image.png');
-      });
-
-      // Log the polygon's coordinates to the console
-      console.log('Polygon Points:', points);
+      const dataURL = stage.toDataURL();
+      console.log('dataURL:', dataURL);
+      console.log('Polygons:', polygons);
     } catch (error) {
       console.error('Error saving image:', error);
     }
@@ -154,11 +150,10 @@ const ImageUpload = () => {
     <div style={{ display: 'flex' }}>
       <ImageList images={images} onSelectImage={handleSelectImage} />
       <div style={{ flexGrow: 1 }}>
-
-        <HandleDeletePolygon setPoints={setPoints}  setIsFinished={setIsFinished} />
+        <HandleDeletePolygon setPolygons={setPolygons} setIsFinished={setIsFinished} />
         
         <button onClick={saveImage} style={{ margin: '10px' }}>
-          Save Image with Polygon
+          Save Image with Polygons
         </button>
         
         <Stage
@@ -178,41 +173,35 @@ const ImageUpload = () => {
                 height={window.innerHeight}
               />
             )}
-            <Group
-              name="polygon"
-              onDragStart={handleGroupDragStart}
-              onDragEnd={handleGroupDragEnd}
-              dragBoundFunc={groupDragBound}
-            >
-              <Line
-                points={points.flatMap((p) => [p.x, p.y])}
-                stroke="red"
-                strokeWidth={2}
-                closed={isFinished}
-               // fill="rgba(0, 128, 0, 0.3)"
-              />
-              {points.map((point, index) => (
-                <Circle
-                  key={index}
-                  x={point.x}
-                  y={point.y}
-                  radius={vertexRadius}
-                  fill="white"
-                  stroke="black"
+            {polygons.map((polygon, polygonIndex) => (
+              <Group
+                key={polygonIndex}
+                name="polygon"
+                onDragStart={() => handleGroupDragStart(polygon)}
+                dragBoundFunc={groupDragBound}
+                draggable
+              >
+                <Line
+                  points={polygon.flatMap((p) => [p.x, p.y])}
+                  stroke={polygonIndex === 0 ? 'red' : 'blue'} // Different color for each polygon
                   strokeWidth={2}
-                  draggable
-                  onDragMove={handlePointDragMove}
-                  dragBoundFunc={(pos) =>
-                    dragBoundFunc(
-                      stageRef.current.width(),
-                      stageRef.current.height(),
-                      vertexRadius,
-                      pos
-                    )
-                  }
+                  closed={isFinished[polygonIndex]}
                 />
-              ))}
-            </Group>
+                {polygon.map((point, index) => (
+                  <Circle
+                    key={index}
+                    x={point.x}
+                    y={point.y}
+                    radius={vertexRadius}
+                    fill="white"
+                    stroke="black"
+                    strokeWidth={2}
+                    draggable
+                    onDragMove={(e) => handlePointDragMove(e, polygonIndex)}
+                  />
+                ))}
+              </Group>
+            ))}
           </Layer>
         </Stage>
       </div>
