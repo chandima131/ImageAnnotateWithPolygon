@@ -1,9 +1,13 @@
 import React, { useState, useRef } from 'react';
-import { Stage, Layer, Image, Line, Circle, Group } from 'react-konva';
+import { Stage, Layer, Image, Line, Circle, Group, Text } from 'react-konva';
 import useImage from 'use-image';
-import HandleDeletePolygon from './HandleDeletePolygon';
-import ImageList from './ImageList';
 import { saveAs } from 'file-saver';
+import ImageList from './ImageList';
+import { confirmAlert } from 'react-confirm-alert';
+import 'react-confirm-alert/src/react-confirm-alert.css';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import '@fortawesome/fontawesome-free/css/all.min.css'; // Import Font Awesome icons
+
 import testImage from '../assets/images/test.jpg';
 import testImage2 from '../assets/images/test2.jpg';
 import testImage3 from '../assets/images/test3.jpg';
@@ -13,22 +17,18 @@ import testImage6 from '../assets/images/test6.jpg';
 import testImage7 from '../assets/images/test7.jpg';
 import testImage8 from '../assets/images/test8.jpg';
 
-const minMax = (arr) => [Math.min(...arr), Math.max(...arr)];
-
 const ImageUpload = () => {
   const [imageSrc, setImageSrc] = useState(null);
-  const [polygons, setPolygons] = useState([[], []]); // Array to store up to two polygons
-  const [currentPolygonIndex, setCurrentPolygonIndex] = useState(0); // Index of the current polygon being drawn
-  const [isFinished, setIsFinished] = useState([false, false]); // Track the completion status of each polygon
-  const [polygonHistory, setPolygonHistory] = useState([]); // History for undo
-  const [redoStack, setRedoStack] = useState([]); // Stack for redo
+  const [polygon, setPolygon] = useState([]); // Store the polygon (single polygon allowed)
+  const [isFinished, setIsFinished] = useState(false); // Track if the polygon is finished
+  const [scale, setScale] = useState(1); // Track zoom level
+  const [position, setPosition] = useState({ x: 0, y: 0 }); // Track position for panning
+  const [isDragging, setIsDragging] = useState(false); // Track if the user is dragging the stage (for panning)
+  const [hoveredPoint, setHoveredPoint] = useState(null); // Track if a polygon point is hovered
+  const [zoomCount, setZoomCount] = useState(0); // Track how many times zoom-in has been applied
   const stageRef = useRef(null);
-  const imageRef = useRef(null);
+  const groupRef = useRef(null); // Ref for the Group (image + polygon)
   const [loadedImage] = useImage(imageSrc);
-  const [scale, setScale] = useState(1); // Maintain the current zoom level (1 = default, no zoom)
-  const [minMaxX, setMinMaxX] = useState([0, 0]);
-  const [minMaxY, setMinMaxY] = useState([0, 0]);
-  const [dragging, setDragging] = useState(false);
   const vertexRadius = 6;
 
   const images = [
@@ -42,199 +42,266 @@ const ImageUpload = () => {
     { src: testImage8 },
   ];
 
+  // Select an image to work on
   const handleSelectImage = (image) => {
     setImageSrc(image.src);
-    setPolygons([[], []]);
-    setCurrentPolygonIndex(0);
-    setIsFinished([false, false]);
-    setPolygonHistory([]);
-    setRedoStack([]);
-    setScale(1);
+    setPolygon([]); // Reset polygon
+    setIsFinished(false); // Reset polygon completion status
+    setPosition({ x: 0, y: 0 }); // Reset position
+    setScale(1); // Reset zoom level
+    setZoomCount(0); // Reset zoom count
   };
 
+  // Handle mouse click to add points to the polygon
   const handleMouseClick = (e) => {
-    if (currentPolygonIndex >= 2) return; // Restrict to a maximum of two polygons
+    if (isFinished || isDragging) return; // Prevent adding points if polygon is finished or the stage is being dragged
+
     const stage = stageRef.current;
     const pointerPos = stage.getPointerPosition();
-    const image = imageRef.current;
+    const group = groupRef.current;
 
-    if (image) {
+    if (group) {
+      const groupPos = group.getClientRect();
       const scaleX = stage.scaleX();
       const scaleY = stage.scaleY();
-      const imageX = image.x();
-      const imageY = image.y();
-      const x = (pointerPos.x - imageX) / scaleX;
-      const y = (pointerPos.y - imageY) / scaleY;
 
-      const newPolygon = [...polygons[currentPolygonIndex]];
+      // Adjust the pointer position based on the group's position and scale
+      const x = (pointerPos.x - groupPos.x) / scaleX;
+      const y = (pointerPos.y - groupPos.y) / scaleY;
 
-      if (newPolygon.length > 0 && !isFinished[currentPolygonIndex]) {
+      const newPolygon = [...polygon];
+
+      // Close the polygon if near the starting point
+      if (newPolygon.length > 0) {
         const startPoint = newPolygon[0];
         const distance = Math.sqrt((x - startPoint.x) ** 2 + (y - startPoint.y) ** 2);
         if (distance < vertexRadius) {
-          const newIsFinished = [...isFinished];
-          newIsFinished[currentPolygonIndex] = true;
-          setIsFinished(newIsFinished);
-          const newPolygons = [...polygons];
-          newPolygons[currentPolygonIndex] = newPolygon;
-          setPolygons(newPolygons);
-          setCurrentPolygonIndex(1);
+          setIsFinished(true); // Polygon is finished
           return;
         }
       }
-      if (isFinished[currentPolygonIndex]) return;
 
       newPolygon.push({ x, y });
-      setPolygonHistory([...polygonHistory, polygons]); // Save to history for undo
-      setRedoStack([]);
-      setPolygons((prevPolygons) => {
-        const newPolygons = [...prevPolygons];
-        newPolygons[currentPolygonIndex] = newPolygon;
-        return newPolygons;
-      });
+      setPolygon(newPolygon);
     }
   };
 
-  const handlePointDragMove = (e, polygonIndex) => {
-    const newPolygons = polygons.slice();
-    newPolygons[polygonIndex][e.target.index] = e.target.position();
-    setPolygons(newPolygons);
+  // Handle polygon deletion with confirmation
+  const handleDeletePolygon = () => {
+    confirmAlert({
+      customUI: ({ onClose }) => (
+        <div className='custom-ui' style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', textAlign: 'center' }}>
+          <h1 style={{ color: '#ff6666' }}>Confirm Delete</h1>
+          <p>Are you sure you want to delete the selected polygon? This action cannot be undone.</p>
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}>
+            <button
+              style={{
+                backgroundColor: '#ff6666',
+                color: '#fff',
+                padding: '10px 20px',
+                margin: '0 10px',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+              }}
+              onClick={() => {
+                setPolygon([]); // Clear the polygon
+                setIsFinished(false); // Reset the finished status
+                onClose();
+              }}
+            >
+              Yes
+            </button>
+            <button
+              style={{
+                backgroundColor: '#666',
+                color: '#fff',
+                padding: '10px 20px',
+                margin: '0 10px',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+              }}
+              onClick={onClose}
+            >
+              No
+            </button>
+          </div>
+        </div>
+      ),
+    });
   };
 
-  const handleGroupDragStart = (polygon) => {
-    const arrX = polygon.map((p) => p.x);
-    const arrY = polygon.map((p) => p.y);
-    setMinMaxX(minMax(arrX));
-    setMinMaxY(minMax(arrY));
-  };
-
-  const groupDragBound = (pos) => {
-    let { x, y } = pos;
-    const stage = stageRef.current;
-    const sw = stage.width();
-    const sh = stage.height();
-
-    if (minMaxY[0] + y < 0) y = -minMaxY[0];
-    if (minMaxX[0] + x < 0) x = -minMaxX[0];
-    if (minMaxY[1] + y > sh) y = sh - minMaxY[1];
-    if (minMaxX[1] + x > sw) x = sw - minMaxX[1];
-
-    return { x, y };
-  };
-
+  // Save the image with the polygon
   const saveImage = async () => {
     const stage = stageRef.current;
     try {
       const dataURL = stage.toDataURL();
-      saveAs(dataURL, 'polygon-image.png'); // Save as image
+      console.log('dataURL:', dataURL);
+      saveAs(dataURL, 'polygon-image.png');
     } catch (error) {
       console.error('Error saving image:', error);
     }
   };
 
-  const handleZoomIn = () => setScale((prevScale) => prevScale * 1.2);
-  const handleZoomOut = () => setScale((prevScale) => prevScale / 1.2);
-
-  const handleUndo = () => {
-    if (polygonHistory.length === 0) return;
-    setRedoStack([...redoStack, polygons]);
-    setPolygons(polygonHistory.pop());
+  // Zoom controls
+  const handleZoomIn = () => {
+    setScale((prevScale) => prevScale * 1.2);
+    setZoomCount((prevCount) => prevCount + 1); // Increment zoom count on zoom in
   };
 
-  const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    setPolygonHistory([...polygonHistory, polygons]);
-    setPolygons(redoStack.pop());
+  const handleZoomOut = () => {
+    if (zoomCount > 0) {
+      setScale((prevScale) => prevScale / 1.2);
+      setZoomCount((prevCount) => prevCount - 1); // Decrement zoom count on zoom out
+    }
   };
 
-  const exportToJson = () => {
-    const json = JSON.stringify(polygons);
-    const blob = new Blob([json], { type: 'application/json' });
-    saveAs(blob, 'polygons.json');
-  };
+  // Handle image and polygon dragging (panning)
+  const handleDragMove = (e) => {
+    const newPos = e.target.position();
+    const stage = stageRef.current;
 
-  const deletePolygon = (index) => {
-    const newPolygons = [...polygons];
-    newPolygons.splice(index, 1);
-    setPolygons(newPolygons);
+    const minX = -stage.width() * (scale - 1);
+    const minY = -stage.height() * (scale - 1);
+    const maxX = 0;
+    const maxY = 0;
+
+    // Restrict the group position to not go out of bounds
+    const x = Math.min(Math.max(newPos.x, minX), maxX);
+    const y = Math.min(Math.max(newPos.y, minY), maxY);
+
+    setPosition({ x, y });
   };
 
   return (
-    <div style={{ display: 'flex' }}>
+    <div style={styles.appContainer}>
       <ImageList images={images} onSelectImage={handleSelectImage} />
-      <div style={{ flexGrow: 1 }}>
-        <HandleDeletePolygon setPolygons={setPolygons} setIsFinished={setIsFinished} />
-        <button onClick={saveImage} style={{ margin: '10px' }}>Save Image with Polygons</button>
-        <button onClick={exportToJson} style={{ margin: '10px' }}>Export JSON</button>
-        <button onClick={handleUndo} style={{ margin: '10px' }}>Undo</button>
-        <button onClick={handleRedo} style={{ margin: '10px' }}>Redo</button>
-        <button onClick={handleZoomIn} style={{ margin: '10px' }}> + </button>
-        <button onClick={handleZoomOut} style={{ margin: '10px' }}> - </button>
-        {polygons.map((polygon, index) => (
-          <button key={index} onClick={() => deletePolygon(index)}>Delete Polygon {index + 1}</button>
-        ))}
 
+      <div style={styles.mainContent}>
+        <div className="mb-3">
+          {/* Bootstrap Buttons */}
+          <button
+            onClick={saveImage}
+            className="btn btn-primary btn-lg me-2"
+            aria-label="Save Image"
+            disabled={!isFinished}
+          >
+            <i className="fas fa-save"></i> Save
+          </button>
+
+          <button
+            onClick={handleZoomIn}
+            className="btn btn-secondary btn-lg me-2"
+            aria-label="Zoom In"
+          >
+            <i className="fas fa-search-plus"></i> Zoom In
+          </button>
+
+          <button
+            onClick={handleZoomOut}
+            className="btn btn-secondary btn-lg me-2"
+            aria-label="Zoom Out"
+            disabled={zoomCount === 0} // Disable zoom out if no zoom in has been applied
+          >
+            <i className="fas fa-search-minus"></i> Zoom Out
+          </button>
+
+          {/* Delete Button */}
+          <button
+            onClick={handleDeletePolygon}
+            className="btn btn-danger btn-lg"
+            aria-label="Delete Polygon"
+            disabled={!isFinished}
+          >
+            <i className="fas fa-trash"></i> Delete
+          </button>
+        </div>
+
+        {/* Stage with the gray background */}
         <Stage
-          width={window.innerWidth - 200}
-          height={window.innerHeight}
+          width={window.innerWidth - 200} // Adjust for sidebar
+          height={window.innerHeight - 100}
           ref={stageRef}
           scaleX={scale}
           scaleY={scale}
-          onClick={handleMouseClick}
+          style={{
+            backgroundColor: '#f5f5f5', // Set the canvas background to a grayish color
+          }}
+          onClick={handleMouseClick} // Allow polygon drawing
         >
           <Layer>
-            {loadedImage && (
-              <Image
-                image={loadedImage}
-                ref={imageRef}
-                x={0}
-                y={0}
-                width={window.innerWidth - 200}
-                height={window.innerHeight}
+            {!imageSrc && (
+              <Text
+                text="Please select an image from the list."
+                fontSize={24}
+                fontStyle="bold"
+                fill="#333"
+                align="center"
+                verticalAlign="middle"
+                x={50}
+                y={window.innerHeight / 2 - 50}
+                width={window.innerWidth - 300}
+                height={50}
               />
             )}
-            {polygons.map((polygon, polygonIndex) => (
+
+            {loadedImage && (
               <Group
-                key={polygonIndex}
-                name="polygon"
-                onDragStart={() => handleGroupDragStart(polygon)}
-                dragBoundFunc={groupDragBound}
-                draggable
+                draggable={scale > 1} // Allow dragging only if zoomed in
+                onDragStart={() => setIsDragging(true)} // Detect when dragging starts
+                onDragEnd={() => setIsDragging(false)} // Detect when dragging ends
+                onDragMove={handleDragMove} // Handle dragging (panning)
+                ref={groupRef} // Reference for the Group (image + polygon)
+                x={position.x}
+                y={position.y}
               >
-                <Line
-                  points={polygon.flatMap((p) => [p.x, p.y])}
-                  stroke={polygonIndex === 0 ? 'red' : 'blue'}
-                  strokeWidth={2}
-                  closed={isFinished[polygonIndex]}
+                <Image
+                  image={loadedImage}
+                  width={window.innerWidth - 200}
+                  height={window.innerHeight - 100}
                 />
-                {polygon.map((point, index) => (
-                  <Circle
-                    key={index}
-                    x={point.x}
-                    y={point.y}
-                    radius={vertexRadius}
-                    fill="white"
-                    stroke="black"
-                    strokeWidth={2}
-                    draggable
-                    onDragMove={(e) => handlePointDragMove(e, polygonIndex)}
-                    onMouseOver={(e) => {
-                      e.target.stroke('yellow');
-                      e.target.getLayer().batchDraw();
-                    }}
-                    onMouseOut={(e) => {
-                      e.target.stroke('black');
-                      e.target.getLayer().batchDraw();
-                    }}
-                  />
-                ))}
+                {polygon.length > 0 && (
+                  <Group>
+                    <Line
+                      points={polygon.flatMap((p) => [p.x, p.y])}
+                      stroke="red"
+                      strokeWidth={2}
+                      closed={isFinished}
+                    />
+                    {polygon.map((point, index) => (
+                      <Circle
+                        key={index}
+                        x={point.x}
+                        y={point.y}
+                        radius={hoveredPoint === index ? 8 : vertexRadius} // Increase size on hover
+                        fill={hoveredPoint === index ? 'gray' : 'white'} // Change color on hover
+                        stroke="black"
+                        strokeWidth={2}
+                        onMouseOver={() => setHoveredPoint(index)} // Set hover state
+                        onMouseOut={() => setHoveredPoint(null)} // Reset hover state
+                      />
+                    ))}
+                  </Group>
+                )}
               </Group>
-            ))}
+            )}
           </Layer>
         </Stage>
       </div>
     </div>
   );
+};
+
+const styles = {
+  appContainer: {
+    display: 'flex',
+    height: '100vh',
+  },
+  mainContent: {
+    flexGrow: 1,
+    padding: '10px',
+  },
 };
 
 export default ImageUpload;
