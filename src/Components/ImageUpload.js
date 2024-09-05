@@ -1,10 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Stage, Layer, Image, Line, Circle, Group } from 'react-konva';
 import useImage from 'use-image';
 import HandleDeletePolygon from './HandleDeletePolygon';
 import ImageList from './ImageList';
 import { saveAs } from 'file-saver';
-
 import testImage from '../assets/images/test.jpg';
 import testImage2 from '../assets/images/test2.jpg';
 import testImage3 from '../assets/images/test3.jpg';
@@ -16,31 +15,22 @@ import testImage8 from '../assets/images/test8.jpg';
 
 const minMax = (arr) => [Math.min(...arr), Math.max(...arr)];
 
-const dragBoundFunc = (width, height, radius, pos) => {
-  let { x, y } = pos;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-  if (x > width - radius * 2) x = width - radius * 2;
-  if (y > height - radius * 2) y = height - radius * 2;
-  return { x, y };
-};
-
 const ImageUpload = () => {
   const [imageSrc, setImageSrc] = useState(null);
   const [polygons, setPolygons] = useState([[], []]); // Array to store up to two polygons
   const [currentPolygonIndex, setCurrentPolygonIndex] = useState(0); // Index of the current polygon being drawn
   const [isFinished, setIsFinished] = useState([false, false]); // Track the completion status of each polygon
+  const [polygonHistory, setPolygonHistory] = useState([]); // History for undo
+  const [redoStack, setRedoStack] = useState([]); // Stack for redo
   const stageRef = useRef(null);
   const imageRef = useRef(null);
   const [loadedImage] = useImage(imageSrc);
-
-  const vertexRadius = 6;
+  const [scale, setScale] = useState(1); // Maintain the current zoom level (1 = default, no zoom)
   const [minMaxX, setMinMaxX] = useState([0, 0]);
   const [minMaxY, setMinMaxY] = useState([0, 0]);
+  const [dragging, setDragging] = useState(false);
+  const vertexRadius = 6;
 
-  const [scale, setScale] = useState(1); // State for image scale
-
-  // Use imported images in the array
   const images = [
     { src: testImage },
     { src: testImage2 },
@@ -57,55 +47,46 @@ const ImageUpload = () => {
     setPolygons([[], []]);
     setCurrentPolygonIndex(0);
     setIsFinished([false, false]);
+    setPolygonHistory([]);
+    setRedoStack([]);
+    setScale(1);
   };
 
   const handleMouseClick = (e) => {
     if (currentPolygonIndex >= 2) return; // Restrict to a maximum of two polygons
-  
     const stage = stageRef.current;
     const pointerPos = stage.getPointerPosition();
     const image = imageRef.current;
-  
+
     if (image) {
-      // Get the current scale of the image (applied by zooming)
       const scaleX = stage.scaleX();
       const scaleY = stage.scaleY();
-  
-      // Get the image position (top-left corner offset)
       const imageX = image.x();
       const imageY = image.y();
-  
-      // Calculate the actual position, adjusting for the zoom scale and image position
       const x = (pointerPos.x - imageX) / scaleX;
       const y = (pointerPos.y - imageY) / scaleY;
-  
+
       const newPolygon = [...polygons[currentPolygonIndex]];
-  
+
       if (newPolygon.length > 0 && !isFinished[currentPolygonIndex]) {
         const startPoint = newPolygon[0];
         const distance = Math.sqrt((x - startPoint.x) ** 2 + (y - startPoint.y) ** 2);
         if (distance < vertexRadius) {
-          // Close the polygon if clicked near the starting point
           const newIsFinished = [...isFinished];
           newIsFinished[currentPolygonIndex] = true;
           setIsFinished(newIsFinished);
-  
           const newPolygons = [...polygons];
           newPolygons[currentPolygonIndex] = newPolygon;
           setPolygons(newPolygons);
-  
-          // Move to the next polygon
-          if (currentPolygonIndex === 0) {
-            setCurrentPolygonIndex(1);
-          }
+          setCurrentPolygonIndex(1);
           return;
         }
       }
-  
       if (isFinished[currentPolygonIndex]) return;
-  
-      // Add the new point to the polygon
+
       newPolygon.push({ x, y });
+      setPolygonHistory([...polygonHistory, polygons]); // Save to history for undo
+      setRedoStack([]);
       setPolygons((prevPolygons) => {
         const newPolygons = [...prevPolygons];
         newPolygons[currentPolygonIndex] = newPolygon;
@@ -113,7 +94,7 @@ const ImageUpload = () => {
       });
     }
   };
-  
+
   const handlePointDragMove = (e, polygonIndex) => {
     const newPolygons = polygons.slice();
     newPolygons[polygonIndex][e.target.index] = e.target.position();
@@ -143,23 +124,39 @@ const ImageUpload = () => {
 
   const saveImage = async () => {
     const stage = stageRef.current;
-
     try {
       const dataURL = stage.toDataURL();
-      console.log('dataURL:', dataURL);
-      console.log('Polygons:', polygons);
+      saveAs(dataURL, 'polygon-image.png'); // Save as image
     } catch (error) {
       console.error('Error saving image:', error);
     }
   };
 
-  // Zoom in and zoom out functions
-  const zoomInImage = () => {
-    setScale((prevScale) => Math.min(prevScale + 0.1, 5)); // Max zoom level of 5
+  const handleZoomIn = () => setScale((prevScale) => prevScale * 1.2);
+  const handleZoomOut = () => setScale((prevScale) => prevScale / 1.2);
+
+  const handleUndo = () => {
+    if (polygonHistory.length === 0) return;
+    setRedoStack([...redoStack, polygons]);
+    setPolygons(polygonHistory.pop());
   };
 
-  const zoomOutImage = () => {
-    setScale((prevScale) => Math.max(prevScale - 0.1, 0.5)); // Min zoom level of 0.5
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    setPolygonHistory([...polygonHistory, polygons]);
+    setPolygons(redoStack.pop());
+  };
+
+  const exportToJson = () => {
+    const json = JSON.stringify(polygons);
+    const blob = new Blob([json], { type: 'application/json' });
+    saveAs(blob, 'polygons.json');
+  };
+
+  const deletePolygon = (index) => {
+    const newPolygons = [...polygons];
+    newPolygons.splice(index, 1);
+    setPolygons(newPolygons);
   };
 
   return (
@@ -167,18 +164,22 @@ const ImageUpload = () => {
       <ImageList images={images} onSelectImage={handleSelectImage} />
       <div style={{ flexGrow: 1 }}>
         <HandleDeletePolygon setPolygons={setPolygons} setIsFinished={setIsFinished} />
-        
-        <button onClick={saveImage} style={{ margin: '10px' }}>
-          Save Image with Polygons
-        </button>
+        <button onClick={saveImage} style={{ margin: '10px' }}>Save Image with Polygons</button>
+        <button onClick={exportToJson} style={{ margin: '10px' }}>Export JSON</button>
+        <button onClick={handleUndo} style={{ margin: '10px' }}>Undo</button>
+        <button onClick={handleRedo} style={{ margin: '10px' }}>Redo</button>
+        <button onClick={handleZoomIn} style={{ margin: '10px' }}> + </button>
+        <button onClick={handleZoomOut} style={{ margin: '10px' }}> - </button>
+        {polygons.map((polygon, index) => (
+          <button key={index} onClick={() => deletePolygon(index)}>Delete Polygon {index + 1}</button>
+        ))}
 
-        <button onClick={zoomInImage} style={{ margin: '10px' }}> + </button>
-        <button onClick={zoomOutImage} style={{ margin: '10px' }}> - </button>
-        
         <Stage
-          width={window.innerWidth - 200} // Adjust width considering the sidebar
+          width={window.innerWidth - 200}
           height={window.innerHeight}
           ref={stageRef}
+          scaleX={scale}
+          scaleY={scale}
           onClick={handleMouseClick}
         >
           <Layer>
@@ -188,10 +189,8 @@ const ImageUpload = () => {
                 ref={imageRef}
                 x={0}
                 y={0}
-                width={window.innerWidth - 200} // Adjust width considering the sidebar
+                width={window.innerWidth - 200}
                 height={window.innerHeight}
-                scaleX={scale} // Apply scale for zooming
-                scaleY={scale} // Apply scale for zooming
               />
             )}
             {polygons.map((polygon, polygonIndex) => (
@@ -204,7 +203,7 @@ const ImageUpload = () => {
               >
                 <Line
                   points={polygon.flatMap((p) => [p.x, p.y])}
-                  stroke={polygonIndex === 0 ? 'red' : 'blue'} // Different color for each polygon
+                  stroke={polygonIndex === 0 ? 'red' : 'blue'}
                   strokeWidth={2}
                   closed={isFinished[polygonIndex]}
                 />
@@ -219,6 +218,14 @@ const ImageUpload = () => {
                     strokeWidth={2}
                     draggable
                     onDragMove={(e) => handlePointDragMove(e, polygonIndex)}
+                    onMouseOver={(e) => {
+                      e.target.stroke('yellow');
+                      e.target.getLayer().batchDraw();
+                    }}
+                    onMouseOut={(e) => {
+                      e.target.stroke('black');
+                      e.target.getLayer().batchDraw();
+                    }}
                   />
                 ))}
               </Group>
