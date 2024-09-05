@@ -1,11 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Image, Line, Circle, Group } from 'react-konva';
 import useImage from 'use-image';
 import HandleDeletePolygon from './HandleDeletePolygon';
 import ImageList from './ImageList';
 import { saveAs } from 'file-saver';
 
-// Import images from the assets folder
 import testImage from '../assets/images/test.jpg';
 import testImage2 from '../assets/images/test2.jpg';
 import testImage3 from '../assets/images/test3.jpg';
@@ -39,6 +38,8 @@ const ImageUpload = () => {
   const [minMaxX, setMinMaxX] = useState([0, 0]);
   const [minMaxY, setMinMaxY] = useState([0, 0]);
 
+  const [scale, setScale] = useState(1); // State for image scale
+
   // Use imported images in the array
   const images = [
     { src: testImage },
@@ -60,21 +61,26 @@ const ImageUpload = () => {
 
   const handleMouseClick = (e) => {
     if (currentPolygonIndex >= 2) return; // Restrict to a maximum of two polygons
-
+  
     const stage = stageRef.current;
     const pointerPos = stage.getPointerPosition();
     const image = imageRef.current;
-
+  
     if (image) {
-      const imageScaleX = image.scaleX();
-      const imageScaleY = image.scaleY();
+      // Get the current scale of the image (applied by zooming)
+      const scaleX = stage.scaleX();
+      const scaleY = stage.scaleY();
+  
+      // Get the image position (top-left corner offset)
       const imageX = image.x();
       const imageY = image.y();
-      const x = (pointerPos.x - imageX) / imageScaleX;
-      const y = (pointerPos.y - imageY) / imageScaleY;
-
+  
+      // Calculate the actual position, adjusting for the zoom scale and image position
+      const x = (pointerPos.x - imageX) / scaleX;
+      const y = (pointerPos.y - imageY) / scaleY;
+  
       const newPolygon = [...polygons[currentPolygonIndex]];
-
+  
       if (newPolygon.length > 0 && !isFinished[currentPolygonIndex]) {
         const startPoint = newPolygon[0];
         const distance = Math.sqrt((x - startPoint.x) ** 2 + (y - startPoint.y) ** 2);
@@ -83,11 +89,11 @@ const ImageUpload = () => {
           const newIsFinished = [...isFinished];
           newIsFinished[currentPolygonIndex] = true;
           setIsFinished(newIsFinished);
-
+  
           const newPolygons = [...polygons];
           newPolygons[currentPolygonIndex] = newPolygon;
           setPolygons(newPolygons);
-
+  
           // Move to the next polygon
           if (currentPolygonIndex === 0) {
             setCurrentPolygonIndex(1);
@@ -95,9 +101,10 @@ const ImageUpload = () => {
           return;
         }
       }
-
+  
       if (isFinished[currentPolygonIndex]) return;
-
+  
+      // Add the new point to the polygon
       newPolygon.push({ x, y });
       setPolygons((prevPolygons) => {
         const newPolygons = [...prevPolygons];
@@ -106,7 +113,7 @@ const ImageUpload = () => {
       });
     }
   };
-
+  
   const handlePointDragMove = (e, polygonIndex) => {
     const newPolygons = polygons.slice();
     newPolygons[polygonIndex][e.target.index] = e.target.position();
@@ -135,7 +142,7 @@ const ImageUpload = () => {
   };
 
   const saveImage = async () => {
-    let stage = stageRef.current;
+    const stage = stageRef.current;
 
     try {
       const dataURL = stage.toDataURL();
@@ -144,6 +151,15 @@ const ImageUpload = () => {
     } catch (error) {
       console.error('Error saving image:', error);
     }
+  };
+
+  // Zoom in and zoom out functions
+  const zoomInImage = () => {
+    setScale((prevScale) => Math.min(prevScale + 0.1, 5)); // Max zoom level of 5
+  };
+
+  const zoomOutImage = () => {
+    setScale((prevScale) => Math.max(prevScale - 0.1, 0.5)); // Min zoom level of 0.5
   };
 
   return (
@@ -155,6 +171,9 @@ const ImageUpload = () => {
         <button onClick={saveImage} style={{ margin: '10px' }}>
           Save Image with Polygons
         </button>
+
+        <button onClick={zoomInImage} style={{ margin: '10px' }}> + </button>
+        <button onClick={zoomOutImage} style={{ margin: '10px' }}> - </button>
         
         <Stage
           width={window.innerWidth - 200} // Adjust width considering the sidebar
@@ -171,6 +190,8 @@ const ImageUpload = () => {
                 y={0}
                 width={window.innerWidth - 200} // Adjust width considering the sidebar
                 height={window.innerHeight}
+                scaleX={scale} // Apply scale for zooming
+                scaleY={scale} // Apply scale for zooming
               />
             )}
             {polygons.map((polygon, polygonIndex) => (
